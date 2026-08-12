@@ -1,0 +1,18 @@
+# CMake build files
+build/
+bin/
+lib/
+
+# Runtime results
+results/
+*.log
+core
+core.*
+
+# VS Code
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
