@@ -7,7 +7,7 @@
 #include "myslam/dataset.h"
 #include "myslam/frontend.h"
 #include "myslam/viewer.h"
-
+#include<fstream>
 namespace myslam {
 
 /**
@@ -41,9 +41,10 @@ class VisualOdometry {
     FrontendStatus GetFrontendStatus() const { return frontend_->GetStatus(); }
 
    private:
+    void SaveTrajectory(const Frame::Ptr& frame);
     bool inited_ = false;
     std::string config_file_path_;
-
+    std::ofstream trajectory_file_;
     Frontend::Ptr frontend_ = nullptr;
     Backend::Ptr backend_ = nullptr;
     Map::Ptr map_ = nullptr;
