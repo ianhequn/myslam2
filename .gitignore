@@ -1,10 +1,11 @@
-# CMake build files
+# 编译的产物 都不纳入change
 build/
 bin/
 lib/
 
-# Runtime results
-results/
+# 程序运行的结果 其中log主要是耗时等的日志
+# 而core主要是程序崩溃的产物
+results/  
 *.log
 core
 core.*
