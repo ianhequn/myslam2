@@ -1,6 +1,7 @@
 //
 // Created by gaoxiang on 19-5-4.
 //
+//主控制代码
 #include "myslam/visual_odometry.h"
 #include <chrono>
 #include "myslam/config.h"
@@ -12,6 +13,7 @@ VisualOdometry::VisualOdometry(std::string &config_path)
 
 bool VisualOdometry::Init() {
     // read from config file
+    //创建 Dataset / Frontend / Backend / Map / Viewer，并把它们连起来
     if (Config::SetParameterFile(config_file_path_) == false) {
         return false;
     }
@@ -38,7 +40,7 @@ bool VisualOdometry::Init() {
 
     return true;
 }
-
+//while 循环一直跑
 void VisualOdometry::Run() {
     while (1) {
         LOG(INFO) << "VO is running";
@@ -52,7 +54,7 @@ void VisualOdometry::Run() {
 
     LOG(INFO) << "VO exit";
 }
-
+//读取一帧图像，然后交给 Frontend
 bool VisualOdometry::Step() {
     Frame::Ptr new_frame = dataset_->NextFrame();
     if (new_frame == nullptr) return false;

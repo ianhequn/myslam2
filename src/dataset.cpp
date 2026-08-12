@@ -12,7 +12,7 @@ Dataset::Dataset(const std::string& dataset_path)
     : dataset_path_(dataset_path) {}
 
 bool Dataset::Init() {
-    // read camera intrinsics and extrinsics
+    // calib.txt，创建左右相机参数
     ifstream fin(dataset_path_ + "/calib.txt");
     if (!fin) {
         LOG(ERROR) << "cannot find " << dataset_path_ << "/calib.txt!";
@@ -47,6 +47,7 @@ bool Dataset::Init() {
 }
 
 Frame::Ptr Dataset::NextFrame() {
+    //image_0 和 image_1，创建 Frame
     boost::format fmt("%s/image_%d/%06d.png");
     cv::Mat image_left, image_right;
     // read images
