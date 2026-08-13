@@ -24,7 +24,7 @@ Frontend::Frontend() {
 
 bool Frontend::AddFrame(myslam::Frame::Ptr frame) {
     current_frame_ = frame;
-
+//这里传入的参数ptr就是结构体的名字
     switch (status_) {
         case FrontendStatus::INITING:
             StereoInit();
@@ -44,7 +44,8 @@ bool Frontend::AddFrame(myslam::Frame::Ptr frame) {
 
 bool Frontend::Track() {
     if (last_frame_) {
-        current_frame_->SetPose(relative_motion_ * last_frame_->Pose());
+        current_frame_->SetPose(relative_motion_ * last_frame_->Pose());//Lastframe是智能指针 指向frameptr中的pose成员
+    //只要上一帧存在就track
     }
 
     int num_track_last = TrackLastFrame();
@@ -67,7 +68,7 @@ bool Frontend::Track() {
     if (viewer_) viewer_->AddCurrentFrame(current_frame_);
     return true;
 }
-
+//下一个函数我们要插入关键帧
 bool Frontend::InsertKeyframe() {
     if (tracking_inliers_ >= num_features_needed_for_keyframe_) {
         // still have enough features, don't insert keyframe

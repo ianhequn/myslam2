@@ -14,16 +14,17 @@ class Backend;
 class Viewer;
 
 enum class FrontendStatus { INITING, TRACKING_GOOD, TRACKING_BAD, LOST };
-
+//前端状态的枚举
 /**
  * 前端
  * 估计当前帧Pose，在满足关键帧条件时向地图加入关键帧并触发优化
  */
 class Frontend {
    public:
+   //公共模块
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW;
     typedef std::shared_ptr<Frontend> Ptr;
-
+//typedef Ptr
     Frontend();
 
     /// 外部接口，添加一个帧并计算其定位结果
@@ -44,6 +45,7 @@ class Frontend {
     }
 
    private:
+   //仅仅给自己使用模块
     /**
      * Track in normal mode
      * @return true if success
@@ -112,7 +114,7 @@ class Frontend {
 
     // data
     FrontendStatus status_ = FrontendStatus::INITING;
-
+//这里的nullptr不是为了定义frame对象而是初始化其智能指针为空指针
     Frame::Ptr current_frame_ = nullptr;  // 当前帧
     Frame::Ptr last_frame_ = nullptr;     // 上一帧
     Camera::Ptr camera_left_ = nullptr;   // 左侧相机
