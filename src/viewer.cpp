@@ -1,6 +1,7 @@
 //
 // Created by gaoxiang on 19-5-4.
 //
+//目前已经拥有了特征点等信息，只需输出到结果显示
 #include "myslam/viewer.h"
 #include "myslam/feature.h"
 #include "myslam/frame.h"
@@ -9,7 +10,7 @@
 #include <opencv2/opencv.hpp>
 
 namespace myslam {
-
+//在创建一个viewer对象的同时 启动一个新的线程同时运行threadloop
 Viewer::Viewer() {
     viewer_thread_ = std::thread(std::bind(&Viewer::ThreadLoop, this));
 }
@@ -34,6 +35,7 @@ void Viewer::UpdateMap() {
 
 void Viewer::ThreadLoop() {
     pangolin::CreateWindowAndBind("MySLAM", 1024, 768);
+    //这里创建三维绘图窗口并绑定
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -62,8 +64,10 @@ void Viewer::ThreadLoop() {
             FollowCurrentFrame(vis_camera);
 
             cv::Mat img = PlotFrameImage();
+            //img=画好了特征点的左目图像
             cv::imshow("image", img);
             cv::waitKey(1);
+            //此行让opencv来刷新窗口
         }
 
         if (map_) {

@@ -8,6 +8,7 @@
 #include "myslam/frontend.h"
 #include "myslam/viewer.h"
 #include<fstream>
+//添加追踪功能使用的是文件管理库
 namespace myslam {
 
 /**
@@ -17,7 +18,8 @@ class VisualOdometry {
    public:
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW;
     typedef std::shared_ptr<VisualOdometry> Ptr;
-
+     std::ofstream trajectory_file_;
+     //轨迹追踪文件指针
     /// constructor with config file
     VisualOdometry(std::string &config_path);
 
@@ -39,7 +41,7 @@ class VisualOdometry {
 
     /// 获取前端状态
     FrontendStatus GetFrontendStatus() const { return frontend_->GetStatus(); }
-
+    void savetrajectory(Frame::Ptr frame);
    private:
     void SaveTrajectory(const Frame::Ptr& frame);
     bool inited_ = false;

@@ -5,13 +5,19 @@
 #include "myslam/visual_odometry.h"
 #include <chrono>
 #include "myslam/config.h"
-
+#include<iomanip>
 namespace myslam {
 
 VisualOdometry::VisualOdometry(std::string &config_path)
     : config_file_path_(config_path) {}
 
 bool VisualOdometry::Init() {
+    //在对应目录保存文件
+    trajectory_file_.open("./results/baseline_kitti_00.txt");
+if (!trajectory_file_) {
+    LOG(ERROR) << "cannot open trajectory file";
+    return false;
+}
     // read from config file
     //创建 Dataset / Frontend / Backend / Map / Viewer，并把它们连起来
     if (Config::SetParameterFile(config_file_path_) == false) {
@@ -67,5 +73,15 @@ bool VisualOdometry::Step() {
     LOG(INFO) << "VO cost time: " << time_used.count() << " seconds.";
     return success;
 }
+void VisualOdometry::SaveTrajectory(Frame::Ptr frame) {
+    SE3 Twc = frame->Pose().inverse();
+    auto T = Twc.matrix();
 
+    trajectory_file_ << std::fixed << std::setprecision(9)
+                     << T(0, 0) << " " << T(0, 1) << " " << T(0, 2) << " " << T(0, 3) << " "
+                     << T(1, 0) << " " << T(1, 1) << " " << T(1, 2) << " " << T(1, 3) << " "
+                     << T(2, 0) << " " << T(2, 1) << " " << T(2, 2) << " " << T(2, 3)
+                     << std::endl;
+}
 }  // namespace myslam
+
