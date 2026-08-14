@@ -39,7 +39,7 @@ inline bool triangulation(const std::vector<SE3> &poses,
 
 // converters
 inline Vec2 toVec2(const cv::Point2f p) { return Vec2(p.x, p.y); }
-
+//内联函数
 }  // namespace myslam
 
 #endif  // MYSLAM_ALGORITHM_H
