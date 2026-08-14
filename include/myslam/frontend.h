@@ -112,6 +112,8 @@ class Frontend {
      */
     void SetObservationsForKeyFrame();
 
+    void ExtractORBForKeyframe();
+
     // data
     FrontendStatus status_ = FrontendStatus::INITING;
 //这里的nullptr不是为了定义frame对象而是初始化其智能指针为空指针
@@ -137,6 +139,7 @@ class Frontend {
 
     // utilities
     cv::Ptr<cv::GFTTDetector> gftt_;  // feature detector in opencv
+    cv::Ptr<cv::ORB> orb_;
 };
 
 }  // namespace myslam

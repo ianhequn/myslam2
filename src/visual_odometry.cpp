@@ -4,20 +4,15 @@
 //主控制代码
 #include "myslam/visual_odometry.h"
 #include <chrono>
+#include <iomanip>
 #include "myslam/config.h"
-#include<iomanip>
+
 namespace myslam {
 
 VisualOdometry::VisualOdometry(std::string &config_path)
     : config_file_path_(config_path) {}
 
 bool VisualOdometry::Init() {
-    //在对应目录保存文件
-    trajectory_file_.open("./results/baseline_kitti_00.txt");
-if (!trajectory_file_) {
-    LOG(ERROR) << "cannot open trajectory file";
-    return false;
-}
     // read from config file
     //创建 Dataset / Frontend / Backend / Map / Viewer，并把它们连起来
     if (Config::SetParameterFile(config_file_path_) == false) {
@@ -44,6 +39,13 @@ if (!trajectory_file_) {
 
     viewer_->SetMap(map_);
 
+    // Save estimated camera poses in KITTI 3x4 format.
+    trajectory_file_.open("./results/baseline_kitti_00.txt");
+    if (!trajectory_file_) {
+        LOG(ERROR) << "cannot open trajectory file";
+        return false;
+    }
+
     return true;
 }
 //while 循环一直跑
@@ -58,6 +60,10 @@ void VisualOdometry::Run() {
     backend_->Stop();
     viewer_->Close();
 
+    if (trajectory_file_.is_open()) {
+        trajectory_file_.close();
+    }
+
     LOG(INFO) << "VO exit";
 }
 //读取一帧图像，然后交给 Frontend
@@ -67,6 +73,9 @@ bool VisualOdometry::Step() {
 
     auto t1 = std::chrono::steady_clock::now();
     bool success = frontend_->AddFrame(new_frame);
+    if (success) {
+        SaveTrajectory(new_frame);
+    }
     auto t2 = std::chrono::steady_clock::now();
     auto time_used =
         std::chrono::duration_cast<std::chrono::duration<double>>(t2 - t1);

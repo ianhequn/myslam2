@@ -18,6 +18,7 @@ namespace myslam {
 Frontend::Frontend() {
     gftt_ =
         cv::GFTTDetector::create(Config::Get<int>("num_features"), 0.01, 20);
+    orb_ = cv::ORB::create(1000);
     num_features_init_ = Config::Get<int>("num_features_init");
     num_features_ = Config::Get<int>("num_features");
 }
@@ -76,6 +77,7 @@ bool Frontend::InsertKeyframe() {
     }
     // current frame is a new keyframe
     current_frame_->SetKeyFrame();
+    ExtractORBForKeyframe();
     map_->InsertKeyFrame(current_frame_);
 
     LOG(INFO) << "Set frame " << current_frame_->id_ << " as keyframe "
@@ -101,6 +103,16 @@ void Frontend::SetObservationsForKeyFrame() {
         auto mp = feat->map_point_.lock();
         if (mp) mp->AddObservation(feat);
     }
+}
+
+void Frontend::ExtractORBForKeyframe() {
+    orb_->detectAndCompute(current_frame_->left_img_, cv::Mat(),
+                           current_frame_->orb_keypoints_,
+                           current_frame_->orb_descriptors_);
+
+    LOG(INFO) << "ORB keypoints in keyframe "
+              << current_frame_->keyframe_id_ << ": "
+              << current_frame_->orb_keypoints_.size();
 }
 
 int Frontend::TriangulateNewPoints() {
