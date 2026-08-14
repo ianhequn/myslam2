@@ -114,11 +114,24 @@ class Frontend {
 
     void ExtractORBForKeyframe();
 
+    void AssociateORBWithMapPoints();
+
+    void MatchORBWithLastKeyframe();
+
+    void DetectLoopCandidate();
+
+    bool VerifyLoopCandidatePnP(Frame::Ptr candidate,
+                                const std::vector<cv::DMatch>& matches,
+                                int* num_correspondences,
+                                int* num_inliers,
+                                SE3* relative_pose);
+
     // data
     FrontendStatus status_ = FrontendStatus::INITING;
 //这里的nullptr不是为了定义frame对象而是初始化其智能指针为空指针
-    Frame::Ptr current_frame_ = nullptr;  // 当前帧
-    Frame::Ptr last_frame_ = nullptr;     // 上一帧
+    Frame::Ptr current_frame_ = nullptr;      // 当前帧
+    Frame::Ptr last_frame_ = nullptr;         // 上一帧
+    Frame::Ptr last_orb_keyframe_ = nullptr;  // 上一个提取了 ORB 的关键帧
     Camera::Ptr camera_left_ = nullptr;   // 左侧相机
     Camera::Ptr camera_right_ = nullptr;  // 右侧相机
 

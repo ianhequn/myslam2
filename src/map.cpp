@@ -47,6 +47,29 @@ void Map::InsertMapPoint(MapPoint::Ptr map_point) {
     }
 }
 
+void Map::AddLoopConstraint(unsigned long keyframe_id1,
+                            unsigned long keyframe_id2,
+                            const SE3& relative_pose,
+                            int num_inliers) {
+    std::unique_lock<std::mutex> lck(data_mutex_);
+    for (const auto& constraint : loop_constraints_) {
+        if (constraint.keyframe_id1_ == keyframe_id1 &&
+            constraint.keyframe_id2_ == keyframe_id2) {
+            return;
+        }
+    }
+
+    LoopConstraint constraint;
+    constraint.keyframe_id1_ = keyframe_id1;
+    constraint.keyframe_id2_ = keyframe_id2;
+    constraint.relative_pose_ = relative_pose;
+    constraint.num_inliers_ = num_inliers;
+    loop_constraints_.push_back(constraint);
+
+    LOG(INFO) << "Add loop constraint " << keyframe_id1 << " -> "
+              << keyframe_id2 << ", inliers=" << num_inliers;
+}
+
 void Map::RemoveOldKeyframe() {
     if (current_frame_ == nullptr) return;
     // 寻找与当前帧最近与最远的两个关键帧

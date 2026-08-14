@@ -19,12 +19,29 @@ class Map {
     typedef std::unordered_map<unsigned long, MapPoint::Ptr> LandmarksType;
     typedef std::unordered_map<unsigned long, Frame::Ptr> KeyframesType;
 
+    struct LoopConstraint {
+        unsigned long keyframe_id1_ = 0;
+        unsigned long keyframe_id2_ = 0;
+        SE3 relative_pose_;
+        int num_inliers_ = 0;
+    };
+
     Map() {}
 
     /// 增加一个关键帧
     void InsertKeyFrame(Frame::Ptr frame);
     /// 增加一个地图顶点
     void InsertMapPoint(MapPoint::Ptr map_point);
+
+    void AddLoopConstraint(unsigned long keyframe_id1,
+                           unsigned long keyframe_id2,
+                           const SE3& relative_pose,
+                           int num_inliers);
+
+    std::vector<LoopConstraint> GetLoopConstraints() {
+        std::unique_lock<std::mutex> lck(data_mutex_);
+        return loop_constraints_;
+    }
 
     /// 获取所有地图点
     LandmarksType GetAllMapPoints() {
@@ -61,6 +78,7 @@ class Map {
     LandmarksType active_landmarks_;  // active landmarks
     KeyframesType keyframes_;         // all key-frames
     KeyframesType active_keyframes_;  // all key-frames
+    std::vector<LoopConstraint> loop_constraints_;
 
     Frame::Ptr current_frame_ = nullptr;
 

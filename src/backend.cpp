@@ -9,6 +9,8 @@
 #include "myslam/map.h"
 #include "myslam/mappoint.h"
 
+#include <iterator>
+
 namespace myslam {
 
 Backend::Backend() {
@@ -37,6 +39,95 @@ void Backend::BackendLoop() {
         Map::LandmarksType active_landmarks = map_->GetActiveMapPoints();
         Optimize(active_kfs, active_landmarks);
     }
+}
+
+void Backend::OptimizePoseGraph() {
+    auto keyframes = map_->GetAllKeyFrames();
+    auto loop_constraints = map_->GetLoopConstraints();
+
+    if (keyframes.size() < 2 || loop_constraints.empty()) {
+        return;
+    }
+
+    typedef g2o::BlockSolver_6_3 BlockSolverType;
+    typedef g2o::LinearSolverCSparse<BlockSolverType::PoseMatrixType>
+        LinearSolverType;
+    auto solver = new g2o::OptimizationAlgorithmLevenberg(
+        g2o::make_unique<BlockSolverType>(
+            g2o::make_unique<LinearSolverType>()));
+    g2o::SparseOptimizer optimizer;
+    optimizer.setAlgorithm(solver);
+
+    std::map<unsigned long, Frame::Ptr> ordered_keyframes;
+    for (const auto& keyframe : keyframes) {
+        ordered_keyframes.insert(keyframe);
+    }
+
+    std::map<unsigned long, VertexPose*> vertices;
+    unsigned long first_keyframe_id = ordered_keyframes.begin()->first;
+    for (const auto& keyframe : ordered_keyframes) {
+        auto kf = keyframe.second;
+        VertexPose* vertex_pose = new VertexPose();
+        vertex_pose->setId(kf->keyframe_id_);
+        vertex_pose->setEstimate(kf->Pose());
+        if (kf->keyframe_id_ == first_keyframe_id) {
+            vertex_pose->setFixed(true);
+        }
+        optimizer.addVertex(vertex_pose);
+        vertices.insert({kf->keyframe_id_, vertex_pose});
+    }
+
+    int edge_id = 0;
+    auto iter_prev = ordered_keyframes.begin();
+    auto iter_curr = std::next(iter_prev);
+    for (; iter_curr != ordered_keyframes.end(); ++iter_prev, ++iter_curr) {
+        const auto& kf1 = iter_prev->second;
+        const auto& kf2 = iter_curr->second;
+        SE3 relative_pose = kf2->Pose() * kf1->Pose().inverse();
+
+        EdgePoseGraph* edge = new EdgePoseGraph();
+        edge->setId(edge_id++);
+        edge->setVertex(0, vertices.at(kf1->keyframe_id_));
+        edge->setVertex(1, vertices.at(kf2->keyframe_id_));
+        edge->setMeasurement(relative_pose);
+        edge->setInformation(Mat66::Identity());
+        optimizer.addEdge(edge);
+    }
+
+    int loop_edge_count = 0;
+    for (const auto& loop_constraint : loop_constraints) {
+        if (vertices.find(loop_constraint.keyframe_id1_) == vertices.end() ||
+            vertices.find(loop_constraint.keyframe_id2_) == vertices.end()) {
+            continue;
+        }
+
+        EdgePoseGraph* edge = new EdgePoseGraph();
+        edge->setId(edge_id++);
+        edge->setVertex(0, vertices.at(loop_constraint.keyframe_id1_));
+        edge->setVertex(1, vertices.at(loop_constraint.keyframe_id2_));
+        edge->setMeasurement(loop_constraint.relative_pose_);
+        edge->setInformation(Mat66::Identity() * 100.0);
+        auto rk = new g2o::RobustKernelHuber();
+        rk->setDelta(1.0);
+        edge->setRobustKernel(rk);
+        optimizer.addEdge(edge);
+        loop_edge_count++;
+    }
+
+    if (loop_edge_count == 0) {
+        return;
+    }
+
+    optimizer.initializeOptimization();
+    optimizer.optimize(30);
+
+    for (const auto& vertex : vertices) {
+        ordered_keyframes.at(vertex.first)->SetPose(vertex.second->estimate());
+    }
+
+    LOG(INFO) << "Global pose graph optimized with "
+              << ordered_keyframes.size() << " keyframes and "
+              << loop_edge_count << " loop edges.";
 }
 
 void Backend::Optimize(Map::KeyframesType &keyframes,

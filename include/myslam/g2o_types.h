@@ -151,6 +151,22 @@ class EdgeProjection
     SE3 _cam_ext;
 };
 
+class EdgePoseGraph : public g2o::BaseBinaryEdge<6, SE3, VertexPose, VertexPose> {
+   public:
+    EIGEN_MAKE_ALIGNED_OPERATOR_NEW;
+
+    virtual void computeError() override {
+        const VertexPose* v0 = static_cast<VertexPose*>(_vertices[0]);
+        const VertexPose* v1 = static_cast<VertexPose*>(_vertices[1]);
+        SE3 Tij_estimated = v1->estimate() * v0->estimate().inverse();
+        _error = (_measurement.inverse() * Tij_estimated).log();
+    }
+
+    virtual bool read(std::istream& in) override { return true; }
+
+    virtual bool write(std::ostream& out) const override { return true; }
+};
+
 }  // namespace myslam
 
 #endif  // MYSLAM_G2O_TYPES_H

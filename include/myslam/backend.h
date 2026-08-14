@@ -37,6 +37,8 @@ class Backend {
     /// 触发地图更新，启动优化
     void UpdateMap();
 
+    void OptimizePoseGraph();
+
     /// 关闭后端线程
     void Stop();
 

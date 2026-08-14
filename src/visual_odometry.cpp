@@ -58,6 +58,7 @@ void VisualOdometry::Run() {
     }
 
     backend_->Stop();
+    backend_->OptimizePoseGraph();
     viewer_->Close();
 
     if (trajectory_file_.is_open()) {

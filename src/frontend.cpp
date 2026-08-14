@@ -4,6 +4,8 @@
 
 #include <opencv2/opencv.hpp>
 
+#include <algorithm>
+
 #include "myslam/algorithm.h"
 #include "myslam/backend.h"
 #include "myslam/config.h"
@@ -14,6 +16,46 @@
 #include "myslam/viewer.h"
 
 namespace myslam {
+
+namespace {
+
+int FindGoodORBMatches(const cv::Mat& descriptors1, const cv::Mat& descriptors2,
+                       std::vector<cv::DMatch>* good_matches = nullptr) {
+    if (descriptors1.empty() || descriptors2.empty()) {
+        return 0;
+    }
+
+    std::vector<std::vector<cv::DMatch>> knn_matches;
+    cv::BFMatcher matcher(cv::NORM_HAMMING);
+    matcher.knnMatch(descriptors1, descriptors2, knn_matches, 2);
+
+    if (knn_matches.empty()) {
+        return 0;
+    }
+
+    const float ratio_threshold = 0.75f;
+    std::vector<cv::DMatch> local_good_matches;
+    for (const auto& match_pair : knn_matches) {
+        if (match_pair.size() < 2) {
+            continue;
+        }
+
+        const auto& best_match = match_pair[0];
+        const auto& second_best_match = match_pair[1];
+        if (best_match.distance <
+            ratio_threshold * second_best_match.distance) {
+            local_good_matches.push_back(best_match);
+        }
+    }
+
+    if (good_matches) {
+        *good_matches = local_good_matches;
+    }
+
+    return static_cast<int>(local_good_matches.size());
+}
+
+}  // namespace
 
 Frontend::Frontend() {
     gftt_ =
@@ -78,11 +120,13 @@ bool Frontend::InsertKeyframe() {
     // current frame is a new keyframe
     current_frame_->SetKeyFrame();
     ExtractORBForKeyframe();
+    MatchORBWithLastKeyframe();
     map_->InsertKeyFrame(current_frame_);
 
     LOG(INFO) << "Set frame " << current_frame_->id_ << " as keyframe "
               << current_frame_->keyframe_id_;
 
+    DetectLoopCandidate();
     SetObservationsForKeyFrame();
     DetectFeatures();  // detect new features
 
@@ -90,6 +134,7 @@ bool Frontend::InsertKeyframe() {
     FindFeaturesInRight();
     // triangulate map points
     TriangulateNewPoints();
+    AssociateORBWithMapPoints();
     // update backend because we have a new keyframe
     backend_->UpdateMap();
 
@@ -109,10 +154,295 @@ void Frontend::ExtractORBForKeyframe() {
     orb_->detectAndCompute(current_frame_->left_img_, cv::Mat(),
                            current_frame_->orb_keypoints_,
                            current_frame_->orb_descriptors_);
+    current_frame_->orb_map_points_.clear();
+    current_frame_->orb_map_points_.resize(current_frame_->orb_keypoints_.size());
 
     LOG(INFO) << "ORB keypoints in keyframe "
               << current_frame_->keyframe_id_ << ": "
               << current_frame_->orb_keypoints_.size();
+}
+
+void Frontend::AssociateORBWithMapPoints() {
+    const double max_feature_distance = 8.0;
+    const double max_distance2 = max_feature_distance * max_feature_distance;
+    int num_associated = 0;
+
+    current_frame_->orb_map_points_.clear();
+    current_frame_->orb_map_points_.resize(current_frame_->orb_keypoints_.size());
+
+    for (size_t i = 0; i < current_frame_->orb_keypoints_.size(); ++i) {
+        const cv::Point2f orb_pt = current_frame_->orb_keypoints_[i].pt;
+        MapPoint::Ptr nearest_map_point = nullptr;
+        double best_distance2 = max_distance2;
+
+        for (const auto& feature : current_frame_->features_left_) {
+            if (!feature || feature->is_outlier_) {
+                continue;
+            }
+
+            auto map_point = feature->map_point_.lock();
+            if (!map_point || map_point->is_outlier_) {
+                continue;
+            }
+
+            const cv::Point2f diff = feature->position_.pt - orb_pt;
+            const double distance2 = diff.x * diff.x + diff.y * diff.y;
+            if (distance2 < best_distance2) {
+                best_distance2 = distance2;
+                nearest_map_point = map_point;
+            }
+        }
+
+        if (nearest_map_point) {
+            current_frame_->orb_map_points_[i] = nearest_map_point;
+            num_associated++;
+        }
+    }
+
+    LOG(INFO) << "Associated ORB keypoints with map points in keyframe "
+              << current_frame_->keyframe_id_ << ": " << num_associated;
+}
+
+void Frontend::MatchORBWithLastKeyframe() {
+    if (!last_orb_keyframe_) {
+        last_orb_keyframe_ = current_frame_;
+        return;
+    }
+
+    if (last_orb_keyframe_->orb_descriptors_.empty() ||
+        current_frame_->orb_descriptors_.empty()) {
+        LOG(WARNING) << "Skip ORB matching because descriptors are empty.";
+        last_orb_keyframe_ = current_frame_;
+        return;
+    }
+
+    std::vector<cv::DMatch> good_matches;
+    const int num_good_matches =
+        FindGoodORBMatches(last_orb_keyframe_->orb_descriptors_,
+                           current_frame_->orb_descriptors_, &good_matches);
+
+    LOG(INFO) << "ORB matches keyframe "
+              << last_orb_keyframe_->keyframe_id_ << " -> "
+              << current_frame_->keyframe_id_
+              << ": good=" << num_good_matches;
+
+    cv::Mat match_image;
+    cv::drawMatches(last_orb_keyframe_->left_img_,
+                    last_orb_keyframe_->orb_keypoints_,
+                    current_frame_->left_img_,
+                    current_frame_->orb_keypoints_, good_matches, match_image,
+                    cv::Scalar::all(-1), cv::Scalar::all(-1),
+                    std::vector<char>(),
+                    cv::DrawMatchesFlags::NOT_DRAW_SINGLE_POINTS);
+    cv::imwrite("./results/orb_match_latest.png", match_image);
+
+    if (current_frame_->keyframe_id_ <= 5) {
+        std::string filename =
+            "./results/orb_match_kf_" +
+            std::to_string(last_orb_keyframe_->keyframe_id_) + "_" +
+            std::to_string(current_frame_->keyframe_id_) + ".png";
+        cv::imwrite(filename, match_image);
+    }
+
+    last_orb_keyframe_ = current_frame_;
+}
+
+void Frontend::DetectLoopCandidate() {
+    const int min_loop_keyframe_gap = 30;
+    const int min_loop_good_matches = 80;
+
+    if (!map_) {
+        return;
+    }
+
+    if (current_frame_->orb_descriptors_.empty()) {
+        LOG(WARNING) << "Skip loop candidate search because current ORB "
+                        "descriptors are empty.";
+        return;
+    }
+
+    auto all_keyframes = map_->GetAllKeyFrames();
+    Frame::Ptr best_candidate = nullptr;
+    std::vector<cv::DMatch> best_matches;
+    int best_good_matches = 0;
+
+    for (const auto& id_and_keyframe : all_keyframes) {
+        Frame::Ptr history_keyframe = id_and_keyframe.second;
+        if (!history_keyframe || history_keyframe == current_frame_) {
+            continue;
+        }
+
+        if (current_frame_->keyframe_id_ <
+            history_keyframe->keyframe_id_ + min_loop_keyframe_gap) {
+            continue;
+        }
+
+        std::vector<cv::DMatch> good_matches;
+        int num_good_matches =
+            FindGoodORBMatches(history_keyframe->orb_descriptors_,
+                               current_frame_->orb_descriptors_, &good_matches);
+
+        if (num_good_matches > best_good_matches) {
+            best_good_matches = num_good_matches;
+            best_candidate = history_keyframe;
+            best_matches = good_matches;
+        }
+    }
+
+    if (!best_candidate) {
+        LOG(INFO) << "Loop candidate search keyframe "
+                  << current_frame_->keyframe_id_ << ": no history keyframe";
+        return;
+    }
+
+    LOG(INFO) << "Loop candidate search keyframe "
+              << current_frame_->keyframe_id_ << ": best keyframe "
+              << best_candidate->keyframe_id_
+              << ", good matches=" << best_good_matches;
+
+    if (best_good_matches < min_loop_good_matches) {
+        return;
+    }
+
+    int num_correspondences = 0;
+    int num_inliers = 0;
+    SE3 loop_relative_pose;
+    if (!VerifyLoopCandidatePnP(best_candidate, best_matches,
+                                &num_correspondences, &num_inliers,
+                                &loop_relative_pose)) {
+        LOG(INFO) << "Loop candidate rejected by PnP keyframe "
+                  << best_candidate->keyframe_id_ << " -> "
+                  << current_frame_->keyframe_id_
+                  << ", good matches=" << best_good_matches
+                  << ", correspondences=" << num_correspondences
+                  << ", inliers=" << num_inliers;
+        return;
+    }
+
+    LOG(INFO) << "Loop candidate accepted by PnP keyframe "
+              << best_candidate->keyframe_id_ << " -> "
+              << current_frame_->keyframe_id_
+              << ", good matches=" << best_good_matches
+              << ", correspondences=" << num_correspondences
+              << ", inliers=" << num_inliers;
+
+    map_->AddLoopConstraint(best_candidate->keyframe_id_,
+                            current_frame_->keyframe_id_,
+                            loop_relative_pose, num_inliers);
+
+    cv::Mat loop_image;
+    cv::drawMatches(best_candidate->left_img_, best_candidate->orb_keypoints_,
+                    current_frame_->left_img_, current_frame_->orb_keypoints_,
+                    best_matches, loop_image, cv::Scalar::all(-1),
+                    cv::Scalar::all(-1), std::vector<char>(),
+                    cv::DrawMatchesFlags::NOT_DRAW_SINGLE_POINTS);
+    cv::imwrite("./results/loop_candidate_latest.png", loop_image);
+
+    std::string filename =
+        "./results/loop_candidate_kf_" +
+        std::to_string(best_candidate->keyframe_id_) + "_" +
+        std::to_string(current_frame_->keyframe_id_) + ".png";
+    cv::imwrite(filename, loop_image);
+}
+
+bool Frontend::VerifyLoopCandidatePnP(Frame::Ptr candidate,
+                                      const std::vector<cv::DMatch>& matches,
+                                      int* num_correspondences,
+                                      int* num_inliers,
+                                      SE3* relative_pose) {
+    const int min_pnp_correspondences = 12;
+    const int min_pnp_inliers = 20;
+    const double min_inlier_ratio = 0.25;
+
+    std::vector<cv::Point3f> points_3d;
+    std::vector<cv::Point2f> points_2d;
+    std::set<unsigned long> used_landmark_ids;
+
+    for (const auto& match : matches) {
+        if (match.queryIdx < 0 || match.trainIdx < 0 ||
+            match.queryIdx >=
+                static_cast<int>(candidate->orb_keypoints_.size()) ||
+            match.trainIdx >=
+                static_cast<int>(current_frame_->orb_keypoints_.size())) {
+            continue;
+        }
+
+        if (match.queryIdx >=
+            static_cast<int>(candidate->orb_map_points_.size())) {
+            continue;
+        }
+
+        auto map_point = candidate->orb_map_points_[match.queryIdx].lock();
+        if (!map_point || map_point->is_outlier_) {
+            continue;
+        }
+
+        if (used_landmark_ids.count(map_point->id_) > 0) {
+            continue;
+        }
+        used_landmark_ids.insert(map_point->id_);
+
+        const Vec3 point_world = map_point->Pos();
+        points_3d.emplace_back(static_cast<float>(point_world[0]),
+                               static_cast<float>(point_world[1]),
+                               static_cast<float>(point_world[2]));
+        points_2d.push_back(current_frame_->orb_keypoints_[match.trainIdx].pt);
+    }
+
+    if (num_correspondences) {
+        *num_correspondences = static_cast<int>(points_3d.size());
+    }
+
+    if (points_3d.size() < min_pnp_correspondences) {
+        if (num_inliers) {
+            *num_inliers = 0;
+        }
+        return false;
+    }
+
+    cv::Mat K = (cv::Mat_<double>(3, 3) << camera_left_->fx_, 0,
+                 camera_left_->cx_, 0, camera_left_->fy_, camera_left_->cy_,
+                 0, 0, 1);
+    cv::Mat rvec, tvec, inliers;
+    const bool pnp_success = cv::solvePnPRansac(
+        points_3d, points_2d, K, cv::Mat(), rvec, tvec, false, 100, 8.0,
+        0.99, inliers);
+
+    const int inlier_count = pnp_success ? inliers.rows : 0;
+    if (num_inliers) {
+        *num_inliers = inlier_count;
+    }
+
+    const double inlier_ratio =
+        points_3d.empty() ? 0.0
+                          : static_cast<double>(inlier_count) /
+                                static_cast<double>(points_3d.size());
+
+    if (pnp_success && relative_pose) {
+        cv::Mat R_cv;
+        cv::Rodrigues(rvec, R_cv);
+
+        Mat33 R;
+        Vec3 t;
+        for (int r = 0; r < 3; ++r) {
+            for (int c = 0; c < 3; ++c) {
+                R(r, c) = R_cv.at<double>(r, c);
+            }
+            t[r] = tvec.at<double>(r, 0);
+        }
+
+        SE3 current_pose_pnp(SO3(R), t);
+        *relative_pose = current_pose_pnp * candidate->Pose().inverse();
+    }
+
+    LOG(INFO) << "PnP verify keyframe " << candidate->keyframe_id_
+              << " -> " << current_frame_->keyframe_id_
+              << ": correspondences=" << points_3d.size()
+              << ", inliers=" << inlier_count
+              << ", inlier_ratio=" << inlier_ratio;
+
+    return pnp_success && inlier_count >= min_pnp_inliers &&
+           inlier_ratio >= min_inlier_ratio;
 }
 
 int Frontend::TriangulateNewPoints() {
@@ -390,6 +720,9 @@ bool Frontend::BuildInitMap() {
         }
     }
     current_frame_->SetKeyFrame();
+    ExtractORBForKeyframe();
+    AssociateORBWithMapPoints();
+    MatchORBWithLastKeyframe();
     map_->InsertKeyFrame(current_frame_);
     backend_->UpdateMap();
 
