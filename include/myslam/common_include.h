@@ -23,6 +23,7 @@
 
 // typedefs for eigen
 // double matricies
+//eigen是线性代数的
 typedef Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic> MatXX;
 typedef Eigen::Matrix<double, 10, 10> Mat1010;
 typedef Eigen::Matrix<double, 13, 13> Mat1313;
