@@ -104,7 +104,3 @@ python3 scripts/compare_trajectories.py --ground-truth /path/to/poses/00.txt
 | `config/` | 相机与数据集配置 |
 | `scripts/` | 轨迹与回环约束评估脚本 |
 | `test/` | 三角化、几何筛选与位姿图相关测试 |
-
-## 致谢
-
-项目主体基于高翔的 [slambook2 ch13](https://github.com/gaoxiang12/slambook2)，并在其基础上进行学习和扩展。原项目及第三方依赖的版权与许可信息按各自文件保留。
