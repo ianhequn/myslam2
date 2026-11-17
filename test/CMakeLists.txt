@@ -1,4 +1,4 @@
-SET(TEST_SOURCES test_triangulation)
+SET(TEST_SOURCES test_triangulation test_pose_graph test_loop_geometry)
 
 FOREACH (test_src ${TEST_SOURCES})
     ADD_EXECUTABLE(${test_src} ${test_src}.cpp)

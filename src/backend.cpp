@@ -1,5 +1,4 @@
 //
-// Created by gaoxiang on 19-5-2.
 //
 
 #include "myslam/backend.h"
@@ -10,6 +9,8 @@
 #include "myslam/mappoint.h"
 
 #include <iterator>
+#include <fstream>
+#include <iomanip>
 
 namespace myslam {
 
@@ -95,6 +96,13 @@ void Backend::OptimizePoseGraph() {
     }
 
     int loop_edge_count = 0;
+    std::ofstream loop_file("./results/loop_constraints.txt");
+    if (loop_file) {
+        loop_file << "# keyframe_id1 keyframe_id2 inliers tx ty tz qx qy qz qw\n";
+        loop_file << std::setprecision(17);
+    } else {
+        LOG(WARNING) << "Cannot save loop constraints";
+    }
     for (const auto& loop_constraint : loop_constraints) {
         if (vertices.find(loop_constraint.keyframe_id1_) == vertices.end() ||
             vertices.find(loop_constraint.keyframe_id2_) == vertices.end()) {
@@ -112,6 +120,16 @@ void Backend::OptimizePoseGraph() {
         edge->setRobustKernel(rk);
         optimizer.addEdge(edge);
         loop_edge_count++;
+        if (loop_file) {
+            const auto& pose = loop_constraint.relative_pose_;
+            const auto q = pose.unit_quaternion();
+            loop_file << loop_constraint.keyframe_id1_ << ' '
+                      << loop_constraint.keyframe_id2_ << ' '
+                      << loop_constraint.num_inliers_ << ' '
+                      << pose.translation().transpose() << ' '
+                      << q.x() << ' ' << q.y() << ' ' << q.z() << ' ' << q.w()
+                      << '\n';
+        }
     }
 
     if (loop_edge_count == 0) {
@@ -119,7 +137,18 @@ void Backend::OptimizePoseGraph() {
     }
 
     optimizer.initializeOptimization();
-    optimizer.optimize(30);
+    optimizer.computeActiveErrors();
+    const double cost_before = optimizer.activeRobustChi2();
+    const int iterations = optimizer.optimize(30);
+    optimizer.computeActiveErrors();
+    const double cost_after = optimizer.activeRobustChi2();
+    LOG(INFO) << "Pose graph iterations=" << iterations
+              << ", robust cost before=" << cost_before
+              << ", after=" << cost_after;
+    if (iterations <= 0 || !std::isfinite(cost_after) || cost_after > cost_before) {
+        LOG(ERROR) << "Pose graph optimization failed; keeping original poses";
+        return;
+    }
 
     for (const auto& vertex : vertices) {
         ordered_keyframes.at(vertex.first)->SetPose(vertex.second->estimate());

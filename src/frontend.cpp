@@ -1,8 +1,8 @@
 //
-// Created by gaoxiang on 19-5-2.
 //
 
 #include <opencv2/opencv.hpp>
+#include <gflags/gflags.h>
 
 #include <algorithm>
 
@@ -12,8 +12,15 @@
 #include "myslam/feature.h"
 #include "myslam/frontend.h"
 #include "myslam/g2o_types.h"
+#include "myslam/loop_geometry.h"
 #include "myslam/map.h"
 #include "myslam/viewer.h"
+
+DEFINE_double(loop_association_px, 8.0, "Maximum ORB-to-feature association distance in pixels");
+DEFINE_double(loop_pnp_reprojection_px, 8.0, "PnP RANSAC reprojection threshold in pixels");
+DEFINE_double(loop_min_inlier_ratio, 0.25, "Minimum PnP inlier ratio");
+DEFINE_double(loop_history_reprojection_px, 0.0,
+              "Historical landmark reprojection threshold in pixels; 0 disables the check");
 
 namespace myslam {
 
@@ -163,7 +170,11 @@ void Frontend::ExtractORBForKeyframe() {
 }
 
 void Frontend::AssociateORBWithMapPoints() {
-    const double max_feature_distance = 8.0;
+    const double max_feature_distance = FLAGS_loop_association_px;
+    if (!std::isfinite(max_feature_distance) || max_feature_distance <= 0) {
+        LOG(ERROR) << "Invalid loop association threshold";
+        return;
+    }
     const double max_distance2 = max_feature_distance * max_feature_distance;
     int num_associated = 0;
 
@@ -352,11 +363,21 @@ bool Frontend::VerifyLoopCandidatePnP(Frame::Ptr candidate,
                                       SE3* relative_pose) {
     const int min_pnp_correspondences = 12;
     const int min_pnp_inliers = 20;
-    const double min_inlier_ratio = 0.25;
+    const double min_inlier_ratio = FLAGS_loop_min_inlier_ratio;
+    if (!std::isfinite(min_inlier_ratio) || min_inlier_ratio < 0 ||
+        min_inlier_ratio > 1 || !std::isfinite(FLAGS_loop_pnp_reprojection_px) ||
+        FLAGS_loop_pnp_reprojection_px <= 0 ||
+        !std::isfinite(FLAGS_loop_history_reprojection_px) ||
+        FLAGS_loop_history_reprojection_px < 0) {
+        LOG(ERROR) << "Invalid loop verification thresholds";
+        return false;
+    }
 
     std::vector<cv::Point3f> points_3d;
     std::vector<cv::Point2f> points_2d;
     std::set<unsigned long> used_landmark_ids;
+    const SE3 candidate_pose = candidate->Pose();
+    int rejected_history_reprojection = 0;
 
     for (const auto& match : matches) {
         if (match.queryIdx < 0 || match.trainIdx < 0 ||
@@ -380,9 +401,16 @@ bool Frontend::VerifyLoopCandidatePnP(Frame::Ptr candidate,
         if (used_landmark_ids.count(map_point->id_) > 0) {
             continue;
         }
-        used_landmark_ids.insert(map_point->id_);
-
         const Vec3 point_world = map_point->Pos();
+        if (!point_world.allFinite()) continue;
+        if (FLAGS_loop_history_reprojection_px > 0 &&
+            !LoopReprojectionConsistent(candidate_pose * point_world,
+                camera_left_->K(), candidate->orb_keypoints_[match.queryIdx].pt,
+                FLAGS_loop_history_reprojection_px)) {
+            ++rejected_history_reprojection;
+            continue;
+        }
+        used_landmark_ids.insert(map_point->id_);
         points_3d.emplace_back(static_cast<float>(point_world[0]),
                                static_cast<float>(point_world[1]),
                                static_cast<float>(point_world[2]));
@@ -391,6 +419,10 @@ bool Frontend::VerifyLoopCandidatePnP(Frame::Ptr candidate,
 
     if (num_correspondences) {
         *num_correspondences = static_cast<int>(points_3d.size());
+    }
+    if (FLAGS_loop_history_reprojection_px > 0) {
+        LOG(INFO) << "Loop historical reprojection rejected="
+                  << rejected_history_reprojection;
     }
 
     if (points_3d.size() < min_pnp_correspondences) {
@@ -405,7 +437,8 @@ bool Frontend::VerifyLoopCandidatePnP(Frame::Ptr candidate,
                  0, 0, 1);
     cv::Mat rvec, tvec, inliers;
     const bool pnp_success = cv::solvePnPRansac(
-        points_3d, points_2d, K, cv::Mat(), rvec, tvec, false, 100, 8.0,
+        points_3d, points_2d, K, cv::Mat(), rvec, tvec, false, 100,
+        FLAGS_loop_pnp_reprojection_px,
         0.99, inliers);
 
     const int inlier_count = pnp_success ? inliers.rows : 0;
@@ -432,7 +465,7 @@ bool Frontend::VerifyLoopCandidatePnP(Frame::Ptr candidate,
         }
 
         SE3 current_pose_pnp(SO3(R), t);
-        *relative_pose = current_pose_pnp * candidate->Pose().inverse();
+        *relative_pose = current_pose_pnp * candidate_pose.inverse();
     }
 
     LOG(INFO) << "PnP verify keyframe " << candidate->keyframe_id_

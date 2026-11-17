@@ -17,4 +17,5 @@ core.*
 .DS_Store
 Thumbs.db
 desktop.ini
-*.md
+__pycache__/
+*.pyc

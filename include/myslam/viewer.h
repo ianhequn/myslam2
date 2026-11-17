@@ -1,5 +1,4 @@
 //
-// Created by gaoxiang on 19-5-4.
 //
 
 #ifndef MYSLAM_VIEWER_H

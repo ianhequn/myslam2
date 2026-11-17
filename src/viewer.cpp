@@ -1,5 +1,4 @@
 //
-// Created by gaoxiang on 19-5-4.
 //
 //目前已经拥有了特征点等信息，只需输出到结果显示
 #include "myslam/viewer.h"

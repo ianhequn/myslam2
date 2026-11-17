@@ -20,7 +20,7 @@ class VisualOdometry {
     typedef std::shared_ptr<VisualOdometry> Ptr;
      //轨迹追踪文件指针
     /// constructor with config file
-    VisualOdometry(std::string &config_path);
+    VisualOdometry(std::string &config_path, bool use_viewer = true);
 
     /**
      * do initialization things before run
@@ -42,7 +42,9 @@ class VisualOdometry {
     FrontendStatus GetFrontendStatus() const { return frontend_->GetStatus(); }
    private:
     void SaveTrajectory(Frame::Ptr frame);
+    void SaveKeyframeTrajectory(const std::string &path);
     bool inited_ = false;
+    bool use_viewer_ = true;
     std::string config_file_path_;
     std::ofstream trajectory_file_;
     Frontend::Ptr frontend_ = nullptr;

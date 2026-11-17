@@ -1,5 +1,4 @@
 //
-// Created by gaoxiang on 19-5-4.
 //
 #include <gtest/gtest.h>
 #include "myslam/common_include.h"

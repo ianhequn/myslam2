@@ -1,16 +1,16 @@
 //
-// Created by gaoxiang on 19-5-4.
 //
 //主控制代码
 #include "myslam/visual_odometry.h"
 #include <chrono>
 #include <iomanip>
+#include <map>
 #include "myslam/config.h"
 
 namespace myslam {
 
-VisualOdometry::VisualOdometry(std::string &config_path)
-    : config_file_path_(config_path) {}
+VisualOdometry::VisualOdometry(std::string &config_path, bool use_viewer)
+    : use_viewer_(use_viewer), config_file_path_(config_path) {}
 
 bool VisualOdometry::Init() {
     // read from config file
@@ -21,13 +21,23 @@ bool VisualOdometry::Init() {
 
     dataset_ =
         Dataset::Ptr(new Dataset(Config::Get<std::string>("dataset_dir")));
-    CHECK_EQ(dataset_->Init(), true);
+    if (!dataset_->Init()) {
+        LOG(ERROR) << "Failed to initialize the dataset";
+        return false;
+    }
+
+    // Open output before starting backend and viewer threads.
+    trajectory_file_.open("./results/baseline_kitti_00.txt");
+    if (!trajectory_file_) {
+        LOG(ERROR) << "cannot open trajectory file; create ./results first";
+        return false;
+    }
 
     // create components and links
     frontend_ = Frontend::Ptr(new Frontend);
     backend_ = Backend::Ptr(new Backend);
     map_ = Map::Ptr(new Map);
-    viewer_ = Viewer::Ptr(new Viewer);
+    if (use_viewer_) viewer_ = Viewer::Ptr(new Viewer);
 
     frontend_->SetBackend(backend_);
     frontend_->SetMap(map_);
@@ -37,14 +47,7 @@ bool VisualOdometry::Init() {
     backend_->SetMap(map_);
     backend_->SetCameras(dataset_->GetCamera(0), dataset_->GetCamera(1));
 
-    viewer_->SetMap(map_);
-
-    // Save estimated camera poses in KITTI 3x4 format.
-    trajectory_file_.open("./results/baseline_kitti_00.txt");
-    if (!trajectory_file_) {
-        LOG(ERROR) << "cannot open trajectory file";
-        return false;
-    }
+    if (viewer_) viewer_->SetMap(map_);
 
     return true;
 }
@@ -58,14 +61,35 @@ void VisualOdometry::Run() {
     }
 
     backend_->Stop();
+    SaveKeyframeTrajectory("./results/keyframes_before.txt");
     backend_->OptimizePoseGraph();
-    viewer_->Close();
+    SaveKeyframeTrajectory("./results/keyframes_after.txt");
+    if (viewer_) viewer_->Close();
 
     if (trajectory_file_.is_open()) {
         trajectory_file_.close();
     }
 
     LOG(INFO) << "VO exit";
+}
+void VisualOdometry::SaveKeyframeTrajectory(const std::string &path) {
+    std::ofstream output(path);
+    if (!output) {
+        LOG(ERROR) << "cannot open keyframe trajectory: " << path;
+        return;
+    }
+    const auto keyframes = map_->GetAllKeyFrames();
+    std::map<unsigned long, Frame::Ptr> ordered(keyframes.begin(), keyframes.end());
+    output << std::fixed << std::setprecision(9);
+    for (const auto &entry : ordered) {
+        const auto &frame = entry.second;
+        auto pose = frame->Pose().inverse().matrix();
+        output << frame->id_;
+        for (int row = 0; row < 3; ++row)
+            for (int col = 0; col < 4; ++col) output << " " << pose(row, col);
+        output << '\n';
+    }
+    LOG(INFO) << "Saved " << ordered.size() << " keyframes to " << path;
 }
 //读取一帧图像，然后交给 Frontend
 bool VisualOdometry::Step() {
